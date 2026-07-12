@@ -71,7 +71,7 @@
     "check": "tsc -p . --noEmit",
     "lint": "eslint .",
     "test": "npm run compile && node --test \"dist/test/*.test.js\"",
-    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository"
+    "package": "npm run compile && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -80,6 +80,7 @@
     "@vscode/vsce": "^3.9.2",
     "eslint": "^10.7.0",
     "globals": "^17.7.0",
+    "ovsx": "^1.0.2",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0"
   }

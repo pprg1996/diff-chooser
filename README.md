@@ -66,3 +66,28 @@ Development Host when interactive testing is desired. Create a VSIX with:
 ```sh
 npm run package
 ```
+
+## Publishing
+
+Version tags publish independently to both extension registries through
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml):
+
+- Visual Studio Marketplace, used by VS Code
+- Open VSX, used by Cursor
+
+Repository maintainers must configure these GitHub Actions secrets:
+
+- `VSCE_PAT`: an Azure DevOps personal access token with
+  **Marketplace > Manage** permission for the `pprg1996` Visual Studio
+  Marketplace publisher.
+- `OVSX_PAT`: an Open VSX access token authorized for the `pprg1996`
+  namespace after signing the Open VSX Publisher Agreement.
+
+The tag must match the version in `package.json`. For example, version `0.1.0`
+is published by pushing the `v0.1.0` tag. The workflow type-checks, lints, and
+tests the extension before either registry publish job starts.
+
+See the official
+[VS Code publishing guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
+and [Open VSX publishing guide](https://github.com/eclipse/openvsx/wiki/Publishing-Extensions)
+for publisher account setup.
