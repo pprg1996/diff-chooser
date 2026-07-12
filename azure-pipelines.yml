@@ -32,6 +32,20 @@ steps:
   - script: npm test
     displayName: Test
 
+  - task: AzureCLI@2
+    displayName: Verify Marketplace identity
+    inputs:
+      azureSubscription: diff-chooser-publishing
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        PROFILE_ID="$(az rest \
+          --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+          --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+          --query id \
+          --output tsv)"
+        echo "Marketplace identity profile: $PROFILE_ID"
+
   - script: node -e 'const { version } = require("./package.json"); if (process.env.RELEASE_TAG !== `v${version}`) throw new Error(`Tag must be v${version}`)'
     displayName: Verify tag matches package version
     env:
@@ -47,9 +61,5 @@ steps:
       scriptType: bash
       scriptLocation: inlineScript
       inlineScript: |
-        az rest \
-          --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
-          --resource 499b84ac-1321-427f-aa17-267ca6975798 \
-          --output none
         VSIX="diff-chooser-$(node -p 'require("./package.json").version').vsix"
         npx vsce publish --azure-credential --packagePath "$VSIX"
