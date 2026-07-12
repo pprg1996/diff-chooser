@@ -1,0 +1,86 @@
+{
+  "name": "diff-chooser",
+  "displayName": "Diff Chooser",
+  "description": "Choose the Git branch or commit used by Source Control and editor gutter diffs.",
+  "version": "0.1.0",
+  "publisher": "pprg1996",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pprg1996/diff-chooser.git"
+  },
+  "homepage": "https://github.com/pprg1996/diff-chooser#readme",
+  "bugs": {
+    "url": "https://github.com/pprg1996/diff-chooser/issues"
+  },
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "diffChooser.selectBaseline",
+        "title": "Diff Chooser: Select Baseline",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "diffChooser.clearBaseline",
+        "title": "Diff Chooser: Clear Baseline",
+        "icon": "$(close)"
+      },
+      {
+        "command": "diffChooser.refresh",
+        "title": "Diff Chooser: Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "diffChooser.selectBaseline",
+          "when": "scmProvider == diffChooser",
+          "group": "navigation@1"
+        },
+        {
+          "command": "diffChooser.refresh",
+          "when": "scmProvider == diffChooser",
+          "group": "navigation@2"
+        },
+        {
+          "command": "diffChooser.clearBaseline",
+          "when": "scmProvider == diffChooser",
+          "group": "navigation@3"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "check": "tsc -p . --noEmit",
+    "lint": "eslint .",
+    "test": "npm run compile && node --test \"dist/test/*.test.js\"",
+    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
+    "@types/vscode": "^1.125.0",
+    "@vscode/vsce": "^3.9.2",
+    "eslint": "^10.7.0",
+    "globals": "^17.7.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.63.0"
+  }
+}
