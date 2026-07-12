@@ -69,25 +69,44 @@ npm run package
 
 ## Publishing
 
-Version tags publish independently to both extension registries through
-[`.github/workflows/publish.yml`](.github/workflows/publish.yml):
+Version tags publish independently to both extension registries:
 
-- Visual Studio Marketplace, used by VS Code
-- Open VSX, used by Cursor
-
-Repository maintainers must configure these GitHub Actions secrets:
-
-- `VSCE_PAT`: an Azure DevOps personal access token with
-  **Marketplace > Manage** permission for the `pprg1996` Visual Studio
-  Marketplace publisher.
-- `OVSX_PAT`: an Open VSX access token authorized for the `pprg1996`
-  namespace after signing the Open VSX Publisher Agreement.
+- [`azure-pipelines.yml`](azure-pipelines.yml) publishes to Visual Studio
+  Marketplace for VS Code using Microsoft Entra workload identity.
+- [`.github/workflows/publish.yml`](.github/workflows/publish.yml) publishes to
+  Open VSX for Cursor using an Open VSX access token.
 
 The tag must match the version in `package.json`. For example, version `0.1.0`
-is published by pushing the `v0.1.0` tag. The workflow type-checks, lints, and
-tests the extension before either registry publish job starts.
+is published by pushing the `v0.1.0` tag. Both pipelines type-check, lint, and
+test the extension before publishing.
+
+### Visual Studio Marketplace
+
+Create an Azure DevOps Azure Resource Manager service connection named
+`diff-chooser-publishing` using workload identity federation. Its user-assigned
+managed identity must be a Contributor on the `pprg1996` Visual Studio
+Marketplace publisher. Then create an Azure Pipeline from the existing
+`azure-pipelines.yml` file. No personal access token is stored.
 
 See the official
 [VS Code publishing guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
-and [Open VSX publishing guide](https://github.com/eclipse/openvsx/wiki/Publishing-Extensions)
-for publisher account setup.
+for the managed identity, federated credential, service connection, and
+Marketplace publisher setup.
+
+### Open VSX
+
+Sign the Open VSX Publisher Agreement, generate a dedicated CI access token,
+and create the namespace once:
+
+```sh
+read -s OVSX_PAT
+export OVSX_PAT
+npx ovsx create-namespace pprg1996
+unset OVSX_PAT
+```
+
+Store that token as the `OVSX_PAT` GitHub Actions secret. Open VSX does not
+currently support OIDC trusted publishing, so this dedicated token remains
+required. See the official
+[Open VSX publishing guide](https://github.com/eclipse/openvsx/wiki/Publishing-Extensions)
+for account and namespace setup.

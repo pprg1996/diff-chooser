@@ -1,0 +1,55 @@
+trigger:
+  branches:
+    exclude:
+      - "*"
+  tags:
+    include:
+      - "v*"
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    clean: "true"
+
+  - task: NodeTool@0
+    displayName: Use Node.js 24
+    inputs:
+      versionSpec: "24.x"
+
+  - script: npm ci
+    displayName: Install dependencies
+
+  - script: npm run check
+    displayName: Type-check
+
+  - script: npm run lint
+    displayName: Lint
+
+  - script: npm test
+    displayName: Test
+
+  - script: node -e 'const { version } = require("./package.json"); if (process.env.RELEASE_TAG !== `v${version}`) throw new Error(`Tag must be v${version}`)'
+    displayName: Verify tag matches package version
+    env:
+      RELEASE_TAG: $(Build.SourceBranchName)
+
+  - script: npm run package
+    displayName: Package extension
+
+  - task: AzureCLI@2
+    displayName: Publish to Visual Studio Marketplace
+    inputs:
+      azureSubscription: diff-chooser-publishing
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az rest \
+          --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+          --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+          --output none
+        VSIX="diff-chooser-$(node -p 'require("./package.json").version').vsix"
+        npx vsce publish --azure-credential --packagePath "$VSIX"

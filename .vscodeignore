@@ -3,6 +3,7 @@
 src/**
 dist/test/**
 .gitignore
+azure-pipelines.yml
 eslint.config.mjs
 tsconfig.json
 **/*.map

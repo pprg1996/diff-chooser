@@ -1,4 +1,4 @@
-name: Publish extension
+name: Publish to Open VSX
 
 on:
   push:
@@ -23,24 +23,6 @@ jobs:
       - run: npm test
       - name: Verify tag matches package version
         run: node -e 'const { version } = require("./package.json"); if (process.env.GITHUB_REF_NAME !== `v${version}`) throw new Error(`Tag must be v${version}`)'
-
-  publish-vscode:
-    needs: quality
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run package
-      - name: Publish to Visual Studio Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          VSIX="diff-chooser-$(node -p 'require("./package.json").version').vsix"
-          npx vsce publish --packagePath "$VSIX" --pat "$VSCE_PAT"
 
   publish-open-vsx:
     needs: quality
