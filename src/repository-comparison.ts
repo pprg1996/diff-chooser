@@ -8,6 +8,7 @@ import {
   readBaselineFile,
   resolveBaseline,
 } from "./git";
+import { formatRepositoryLabel } from "./repository-label";
 
 const virtualDocumentScheme = "diff-chooser";
 
@@ -79,9 +80,9 @@ export class BaselineContentProvider
 }
 
 export class RepositoryComparison implements vscode.Disposable {
-  readonly sourceControl: vscode.SourceControl;
+  private currentSourceControl: vscode.SourceControl;
 
-  private readonly changesGroup: vscode.SourceControlResourceGroup;
+  private changesGroup: vscode.SourceControlResourceGroup;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly persistenceKey: string;
   private readonly quickDiffProvider: vscode.QuickDiffProvider;
@@ -97,20 +98,6 @@ export class RepositoryComparison implements vscode.Disposable {
     private readonly contentProvider: BaselineContentProvider,
     private readonly output: vscode.OutputChannel,
   ) {
-    const repositoryName = path.basename(repository.rootUri.fsPath);
-    this.sourceControl = vscode.scm.createSourceControl(
-      "diffChooser",
-      `Diff Chooser (${repositoryName})`,
-      repository.rootUri,
-    );
-    this.sourceControl.inputBox.visible = false;
-
-    this.changesGroup = this.sourceControl.createResourceGroup(
-      "changes",
-      "Select baseline",
-    );
-    this.changesGroup.hideWhenEmpty = false;
-
     this.persistenceKey = `diffChooser.baseline.${repository.rootUri.toString()}`;
     this.selection =
       context.workspaceState.get<BaselineSelection>(this.persistenceKey);
@@ -118,11 +105,16 @@ export class RepositoryComparison implements vscode.Disposable {
     this.quickDiffProvider = {
       provideOriginalResource: (uri) => this.provideOriginalResource(uri),
     };
-    this.sourceControl.quickDiffProvider = this.quickDiffProvider;
+
+    const { sourceControl, changesGroup } = this.createSourceControl();
+    this.currentSourceControl = sourceControl;
+    this.changesGroup = changesGroup;
 
     this.disposables.push(
-      this.sourceControl,
-      repository.state.onDidChange(() => this.scheduleRefresh()),
+      repository.state.onDidChange(() => {
+        this.updateSourceControlLabel();
+        this.scheduleRefresh();
+      }),
       vscode.workspace.onDidSaveTextDocument((document) => {
         if (this.contains(document.uri)) {
           this.scheduleRefresh();
@@ -151,12 +143,65 @@ export class RepositoryComparison implements vscode.Disposable {
     );
   }
 
+  get sourceControl(): vscode.SourceControl {
+    return this.currentSourceControl;
+  }
+
   get displayName(): string {
     return path.basename(this.repository.rootUri.fsPath);
   }
 
   get selectedBaseline(): BaselineSelection | undefined {
     return this.selection;
+  }
+
+  private createSourceControl(): {
+    sourceControl: vscode.SourceControl;
+    changesGroup: vscode.SourceControlResourceGroup;
+  } {
+    const sourceControl = vscode.scm.createSourceControl(
+      "diffChooser",
+      formatRepositoryLabel(
+        this.repository.rootUri.fsPath,
+        this.repository.state.HEAD,
+      ),
+      this.repository.rootUri,
+    );
+    sourceControl.inputBox.visible = false;
+    sourceControl.quickDiffProvider = this.quickDiffProvider;
+
+    const changesGroup = sourceControl.createResourceGroup(
+      "changes",
+      "Select baseline",
+    );
+    changesGroup.hideWhenEmpty = false;
+
+    return { sourceControl, changesGroup };
+  }
+
+  private updateSourceControlLabel(): void {
+    const label = formatRepositoryLabel(
+      this.repository.rootUri.fsPath,
+      this.repository.state.HEAD,
+    );
+    if (label === this.currentSourceControl.label) {
+      return;
+    }
+
+    const previousSourceControl = this.currentSourceControl;
+    const previousGroup = this.changesGroup;
+    const previousGroupLabel = previousGroup.label;
+    const previousResourceStates = previousGroup.resourceStates;
+    const previousCount = previousSourceControl.count;
+
+    const { sourceControl, changesGroup } = this.createSourceControl();
+    changesGroup.label = previousGroupLabel;
+    changesGroup.resourceStates = previousResourceStates;
+    sourceControl.count = previousCount;
+
+    this.currentSourceControl = sourceControl;
+    this.changesGroup = changesGroup;
+    previousSourceControl.dispose();
   }
 
   async initialize(): Promise<void> {
@@ -342,6 +387,7 @@ export class RepositoryComparison implements vscode.Disposable {
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
+    this.currentSourceControl.dispose();
   }
 }
 

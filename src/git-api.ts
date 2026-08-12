@@ -1,8 +1,14 @@
 import type { Event, Uri } from "vscode";
 
+export interface GitBranch {
+  readonly name?: string;
+  readonly commit?: string;
+}
+
 export interface GitRepository {
   readonly rootUri: Uri;
   readonly state: {
+    readonly HEAD?: GitBranch;
     readonly onDidChange: Event<void>;
   };
 }
