@@ -17,7 +17,9 @@ remain visible alongside Diff Chooser.
   commit.
 - Committed, staged, unstaged, and untracked changes are included.
 - The selection is stored per repository in workspace state.
-- Every Git repository detected by VS Code gets its own Diff Chooser provider.
+- Every Git repository opened as a workspace folder gets its own Diff Chooser
+  provider. Repositories merely detected by VS Code, such as sibling worktrees,
+  stay out of the Source Control view.
 
 For example, if a feature branch split from `main` at commit `A`, then `main`
 added `M1` and the feature branch added `F1`, selecting `main` uses `A` as the

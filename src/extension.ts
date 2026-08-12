@@ -11,6 +11,7 @@ import {
   RepositoryComparison,
   registerBaselineContentProvider,
 } from "./repository-comparison";
+import { isWorkspaceRepository } from "./workspace-repositories";
 
 interface BaselineQuickPickItem extends vscode.QuickPickItem {
   branch?: GitRef;
@@ -75,9 +76,15 @@ export async function activate(
   }
 
   const gitApi = git.getAPI(1);
+  const workspaceFolderUris = (): string[] =>
+    (vscode.workspace.workspaceFolders ?? []).map(({ uri }) => uri.toString());
+
   const addRepository = (repository: GitRepository): void => {
     const key = repository.rootUri.toString();
-    if (comparisons.has(key)) {
+    if (
+      comparisons.has(key) ||
+      !isWorkspaceRepository(key, workspaceFolderUris())
+    ) {
       return;
     }
 
@@ -101,12 +108,24 @@ export async function activate(
     comparisons.delete(key);
   };
 
-  for (const repository of gitApi.repositories) {
-    addRepository(repository);
-  }
+  const syncWorkspaceRepositories = (): void => {
+    const openWorkspaceFolderUris = workspaceFolderUris();
+    for (const [key, comparison] of comparisons) {
+      if (!isWorkspaceRepository(key, openWorkspaceFolderUris)) {
+        comparison.dispose();
+        comparisons.delete(key);
+      }
+    }
+    for (const repository of gitApi.repositories) {
+      addRepository(repository);
+    }
+  };
+
+  syncWorkspaceRepositories();
   context.subscriptions.push(
     gitApi.onDidOpenRepository(addRepository),
     gitApi.onDidCloseRepository(removeRepository),
+    vscode.workspace.onDidChangeWorkspaceFolders(syncWorkspaceRepositories),
   );
 
   const chooseComparison = async (
