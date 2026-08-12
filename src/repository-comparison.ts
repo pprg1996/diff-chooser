@@ -169,6 +169,9 @@ export class RepositoryComparison implements vscode.Disposable {
     );
     sourceControl.inputBox.visible = false;
     sourceControl.quickDiffProvider = this.quickDiffProvider;
+    // Baseline comparisons are contextual, not pending Git changes. Keep them
+    // out of VS Code's aggregated Source Control activity badge.
+    sourceControl.count = 0;
 
     const changesGroup = sourceControl.createResourceGroup(
       "changes",
@@ -192,12 +195,10 @@ export class RepositoryComparison implements vscode.Disposable {
     const previousGroup = this.changesGroup;
     const previousGroupLabel = previousGroup.label;
     const previousResourceStates = previousGroup.resourceStates;
-    const previousCount = previousSourceControl.count;
 
     const { sourceControl, changesGroup } = this.createSourceControl();
     changesGroup.label = previousGroupLabel;
     changesGroup.resourceStates = previousResourceStates;
-    sourceControl.count = previousCount;
 
     this.currentSourceControl = sourceControl;
     this.changesGroup = changesGroup;
@@ -243,7 +244,6 @@ export class RepositoryComparison implements vscode.Disposable {
       this.renamedPaths.clear();
       this.changesGroup.label = "Select baseline";
       this.changesGroup.resourceStates = [];
-      this.sourceControl.count = 0;
       this.contentProvider.invalidateRepository(this.repository.rootUri.fsPath);
       return;
     }
@@ -282,7 +282,6 @@ export class RepositoryComparison implements vscode.Disposable {
     this.changesGroup.resourceStates = changes.map((change) =>
       this.createResourceState(change, baselineCommit),
     );
-    this.sourceControl.count = changes.length;
 
     if (baselineChanged) {
       this.contentProvider.invalidateRepository(
