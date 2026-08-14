@@ -8,7 +8,10 @@ import {
   readBaselineFile,
   resolveBaseline,
 } from "./git";
-import { formatRepositoryLabel } from "./repository-label";
+import {
+  formatWorktreeGroupLabel,
+  formatWorktreeName,
+} from "./repository-label";
 
 const virtualDocumentScheme = "diff-chooser";
 
@@ -80,12 +83,10 @@ export class BaselineContentProvider
 }
 
 export class RepositoryComparison implements vscode.Disposable {
-  private currentSourceControl: vscode.SourceControl;
+  readonly resourceGroup: vscode.SourceControlResourceGroup;
 
-  private changesGroup: vscode.SourceControlResourceGroup;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly persistenceKey: string;
-  private readonly quickDiffProvider: vscode.QuickDiffProvider;
   private selection: BaselineSelection | undefined;
   private baselineCommit: string | undefined;
   private renamedPaths = new Map<string, string>();
@@ -94,25 +95,25 @@ export class RepositoryComparison implements vscode.Disposable {
 
   constructor(
     readonly repository: GitRepository,
+    sourceControl: vscode.SourceControl,
     private readonly context: vscode.ExtensionContext,
     private readonly contentProvider: BaselineContentProvider,
     private readonly output: vscode.OutputChannel,
+    private readonly invalidateQuickDiff: () => void,
   ) {
     this.persistenceKey = `diffChooser.baseline.${repository.rootUri.toString()}`;
     this.selection =
       context.workspaceState.get<BaselineSelection>(this.persistenceKey);
 
-    this.quickDiffProvider = {
-      provideOriginalResource: (uri) => this.provideOriginalResource(uri),
-    };
-
-    const { sourceControl, changesGroup } = this.createSourceControl();
-    this.currentSourceControl = sourceControl;
-    this.changesGroup = changesGroup;
+    this.resourceGroup = sourceControl.createResourceGroup(
+      `worktree:${Buffer.from(repository.rootUri.toString()).toString("base64url")}`,
+      this.groupLabel,
+    );
+    this.resourceGroup.hideWhenEmpty = false;
 
     this.disposables.push(
       repository.state.onDidChange(() => {
-        this.updateSourceControlLabel();
+        this.resourceGroup.label = this.groupLabel;
         this.scheduleRefresh();
       }),
       vscode.workspace.onDidSaveTextDocument((document) => {
@@ -143,66 +144,27 @@ export class RepositoryComparison implements vscode.Disposable {
     );
   }
 
-  get sourceControl(): vscode.SourceControl {
-    return this.currentSourceControl;
-  }
-
   get displayName(): string {
-    return path.basename(this.repository.rootUri.fsPath);
+    return formatWorktreeName(
+      this.repository.rootUri.fsPath,
+      this.repository.state.HEAD,
+    );
   }
 
   get selectedBaseline(): BaselineSelection | undefined {
     return this.selection;
   }
 
-  private createSourceControl(): {
-    sourceControl: vscode.SourceControl;
-    changesGroup: vscode.SourceControlResourceGroup;
-  } {
-    const sourceControl = vscode.scm.createSourceControl(
-      "diffChooser",
-      formatRepositoryLabel(
-        this.repository.rootUri.fsPath,
-        this.repository.state.HEAD,
-      ),
-      this.repository.rootUri,
-    );
-    sourceControl.inputBox.visible = false;
-    sourceControl.quickDiffProvider = this.quickDiffProvider;
-    // Baseline comparisons are contextual, not pending Git changes. Keep them
-    // out of VS Code's aggregated Source Control activity badge.
-    sourceControl.count = 0;
-
-    const changesGroup = sourceControl.createResourceGroup(
-      "changes",
-      "Select baseline",
-    );
-    changesGroup.hideWhenEmpty = false;
-
-    return { sourceControl, changesGroup };
+  get repositoryPath(): string {
+    return this.repository.rootUri.fsPath;
   }
 
-  private updateSourceControlLabel(): void {
-    const label = formatRepositoryLabel(
+  private get groupLabel(): string {
+    return formatWorktreeGroupLabel(
       this.repository.rootUri.fsPath,
       this.repository.state.HEAD,
+      this.selection,
     );
-    if (label === this.currentSourceControl.label) {
-      return;
-    }
-
-    const previousSourceControl = this.currentSourceControl;
-    const previousGroup = this.changesGroup;
-    const previousGroupLabel = previousGroup.label;
-    const previousResourceStates = previousGroup.resourceStates;
-
-    const { sourceControl, changesGroup } = this.createSourceControl();
-    changesGroup.label = previousGroupLabel;
-    changesGroup.resourceStates = previousResourceStates;
-
-    this.currentSourceControl = sourceControl;
-    this.changesGroup = changesGroup;
-    previousSourceControl.dispose();
   }
 
   async initialize(): Promise<void> {
@@ -211,12 +173,14 @@ export class RepositoryComparison implements vscode.Disposable {
 
   async setSelection(selection: BaselineSelection): Promise<void> {
     this.selection = selection;
+    this.resourceGroup.label = this.groupLabel;
     await this.context.workspaceState.update(this.persistenceKey, selection);
     await this.refresh();
   }
 
   async clearSelection(): Promise<void> {
     this.selection = undefined;
+    this.resourceGroup.label = this.groupLabel;
     await this.context.workspaceState.update(this.persistenceKey, undefined);
     await this.refresh();
   }
@@ -240,11 +204,15 @@ export class RepositoryComparison implements vscode.Disposable {
     const selection = this.selection;
 
     if (!selection) {
+      const baselineChanged = this.baselineCommit !== undefined;
       this.baselineCommit = undefined;
       this.renamedPaths.clear();
-      this.changesGroup.label = "Select baseline";
-      this.changesGroup.resourceStates = [];
+      this.resourceGroup.label = this.groupLabel;
+      this.resourceGroup.resourceStates = [];
       this.contentProvider.invalidateRepository(this.repository.rootUri.fsPath);
+      if (baselineChanged) {
+        this.invalidateQuickDiff();
+      }
       return;
     }
 
@@ -275,11 +243,8 @@ export class RepositoryComparison implements vscode.Disposable {
         .map((change) => [change.path, change.originalPath]),
     );
 
-    this.changesGroup.label =
-      selection.kind === "branch"
-        ? `Changes vs ${selection.label} (merge base)`
-        : `Changes vs ${selection.label}`;
-    this.changesGroup.resourceStates = changes.map((change) =>
+    this.resourceGroup.label = this.groupLabel;
+    this.resourceGroup.resourceStates = changes.map((change) =>
       this.createResourceState(change, baselineCommit),
     );
 
@@ -287,8 +252,7 @@ export class RepositoryComparison implements vscode.Disposable {
       this.contentProvider.invalidateRepository(
         this.repository.rootUri.fsPath,
       );
-      this.sourceControl.quickDiffProvider = undefined;
-      this.sourceControl.quickDiffProvider = this.quickDiffProvider;
+      this.invalidateQuickDiff();
     }
   }
 
@@ -346,7 +310,7 @@ export class RepositoryComparison implements vscode.Disposable {
     };
   }
 
-  private provideOriginalResource(uri: vscode.Uri): vscode.Uri | undefined {
+  provideOriginalResource(uri: vscode.Uri): vscode.Uri | undefined {
     if (!this.baselineCommit || !this.contains(uri)) {
       return undefined;
     }
@@ -362,7 +326,7 @@ export class RepositoryComparison implements vscode.Disposable {
     });
   }
 
-  private contains(uri: vscode.Uri): boolean {
+  contains(uri: vscode.Uri): boolean {
     if (uri.scheme !== "file") {
       return false;
     }
@@ -386,7 +350,107 @@ export class RepositoryComparison implements vscode.Disposable {
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
-    this.currentSourceControl.dispose();
+    this.resourceGroup.dispose();
+  }
+}
+
+export class RepositoryComparisons implements vscode.Disposable {
+  readonly sourceControl: vscode.SourceControl;
+
+  private readonly comparisons = new Map<string, RepositoryComparison>();
+  private readonly quickDiffProvider: vscode.QuickDiffProvider;
+
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly contentProvider: BaselineContentProvider,
+    private readonly output: vscode.OutputChannel,
+  ) {
+    this.sourceControl = vscode.scm.createSourceControl(
+      "diffChooser",
+      vscode.workspace.name
+        ? `${vscode.workspace.name} Diff Chooser`
+        : "Diff Chooser",
+    );
+    this.sourceControl.inputBox.visible = false;
+    // Baseline comparisons are contextual, not pending Git changes. Keep them
+    // out of VS Code's aggregated Source Control activity badge.
+    this.sourceControl.count = 0;
+
+    this.quickDiffProvider = {
+      provideOriginalResource: (uri) => this.provideOriginalResource(uri),
+    };
+    this.sourceControl.quickDiffProvider = this.quickDiffProvider;
+  }
+
+  get available(): RepositoryComparison[] {
+    return [...this.comparisons.values()].sort(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName) ||
+        left.repositoryPath.localeCompare(right.repositoryPath),
+    );
+  }
+
+  add(repository: GitRepository): void {
+    const key = repository.rootUri.toString();
+    if (this.comparisons.has(key)) {
+      return;
+    }
+
+    const comparison = new RepositoryComparison(
+      repository,
+      this.sourceControl,
+      this.context,
+      this.contentProvider,
+      this.output,
+      () => this.invalidateQuickDiff(),
+    );
+    this.comparisons.set(key, comparison);
+    void comparison.initialize().catch((error: unknown) => {
+      this.output.appendLine(
+        `[${comparison.displayName}] ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  }
+
+  remove(repository: GitRepository): void {
+    const key = repository.rootUri.toString();
+    this.comparisons.get(key)?.dispose();
+    this.comparisons.delete(key);
+  }
+
+  findForContext(
+    context?: vscode.SourceControl | vscode.SourceControlResourceGroup,
+  ): RepositoryComparison | undefined {
+    return this.available.find(
+      (comparison) => comparison.resourceGroup === context,
+    );
+  }
+
+  async refreshAll(): Promise<void> {
+    await Promise.all(this.available.map((comparison) => comparison.refresh()));
+  }
+
+  private provideOriginalResource(uri: vscode.Uri): vscode.Uri | undefined {
+    return this.available
+      .filter((comparison) => comparison.contains(uri))
+      .sort(
+        (left, right) =>
+          right.repositoryPath.length - left.repositoryPath.length,
+      )[0]
+      ?.provideOriginalResource(uri);
+  }
+
+  private invalidateQuickDiff(): void {
+    this.sourceControl.quickDiffProvider = undefined;
+    this.sourceControl.quickDiffProvider = this.quickDiffProvider;
+  }
+
+  dispose(): void {
+    for (const comparison of this.comparisons.values()) {
+      comparison.dispose();
+    }
+    this.comparisons.clear();
+    this.sourceControl.dispose();
   }
 }
 

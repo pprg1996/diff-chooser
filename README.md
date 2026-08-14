@@ -17,9 +17,11 @@ remain visible alongside Diff Chooser.
   commit.
 - Committed, staged, unstaged, and untracked changes are included.
 - The selection is stored per repository in workspace state.
-- Every Git repository opened as a workspace folder gets its own Diff Chooser
-  provider. Repositories merely detected by VS Code, such as sibling worktrees,
-  stay out of the Source Control view.
+- A single Diff Chooser provider groups every Git repository and worktree
+  detected by VS Code. Each worktree has a collapsible group labeled with its
+  branch and baseline, such as `feature/login → main`.
+- Baselines remain independent per worktree, and each group's count stays out
+  of the global Source Control activity badge.
 
 For example, if a feature branch split from `main` at commit `A`, then `main`
 added `M1` and the feature branch added `F1`, selecting `main` uses `A` as the
@@ -27,13 +29,13 @@ baseline. The resulting comparison shows `F1`, not the absence of `M1`.
 
 ## Commands
 
-The following commands are available from the Command Palette and from each
-Diff Chooser provider's title bar:
+The following commands are available from the Command Palette, the shared Diff
+Chooser title bar, and each worktree group's inline actions:
 
 - **Diff Chooser: Select Baseline** lists local and remote branches and allows
   entering an exact commit or revision.
 - **Diff Chooser: Refresh** recalculates the selected baseline and changed
-  files.
+  files. The shared title action refreshes every worktree at once.
 - **Diff Chooser: Clear Baseline** removes the saved selection for that
   repository.
 

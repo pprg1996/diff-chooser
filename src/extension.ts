@@ -5,18 +5,23 @@ import {
   listBranches,
   resolveCommit,
 } from "./git";
-import type { GitExtension, GitRepository } from "./git-api";
+import type { GitExtension } from "./git-api";
 import {
   BaselineContentProvider,
   RepositoryComparison,
+  RepositoryComparisons,
   registerBaselineContentProvider,
 } from "./repository-comparison";
-import { isWorkspaceRepository } from "./workspace-repositories";
 
 interface BaselineQuickPickItem extends vscode.QuickPickItem {
   branch?: GitRef;
   enterCommit?: true;
 }
+
+type ScmContext =
+  | vscode.SourceControl
+  | vscode.SourceControlResourceGroup
+  | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -25,20 +30,11 @@ export async function activate(
     log: true,
   });
   const contentProvider = new BaselineContentProvider();
-  const comparisons = new Map<string, RepositoryComparison>();
 
   context.subscriptions.push(
     output,
     contentProvider,
     registerBaselineContentProvider(contentProvider),
-    {
-      dispose: () => {
-        for (const comparison of comparisons.values()) {
-          comparison.dispose();
-        }
-        comparisons.clear();
-      },
-    },
     vscode.commands.registerCommand(
       "diffChooser.openDiff",
       async (
@@ -76,71 +72,31 @@ export async function activate(
   }
 
   const gitApi = git.getAPI(1);
-  const workspaceFolderUris = (): string[] =>
-    (vscode.workspace.workspaceFolders ?? []).map(({ uri }) => uri.toString());
-
-  const addRepository = (repository: GitRepository): void => {
-    const key = repository.rootUri.toString();
-    if (
-      comparisons.has(key) ||
-      !isWorkspaceRepository(key, workspaceFolderUris())
-    ) {
-      return;
-    }
-
-    const comparison = new RepositoryComparison(
-      repository,
-      context,
-      contentProvider,
-      output,
-    );
-    comparisons.set(key, comparison);
-    void comparison.initialize().catch((error: unknown) => {
-      output.appendLine(
-        `[${comparison.displayName}] ${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
-  };
-
-  const removeRepository = (repository: GitRepository): void => {
-    const key = repository.rootUri.toString();
-    comparisons.get(key)?.dispose();
-    comparisons.delete(key);
-  };
-
-  const syncWorkspaceRepositories = (): void => {
-    const openWorkspaceFolderUris = workspaceFolderUris();
-    for (const [key, comparison] of comparisons) {
-      if (!isWorkspaceRepository(key, openWorkspaceFolderUris)) {
-        comparison.dispose();
-        comparisons.delete(key);
-      }
-    }
-    for (const repository of gitApi.repositories) {
-      addRepository(repository);
-    }
-  };
-
-  syncWorkspaceRepositories();
+  const comparisons = new RepositoryComparisons(
+    context,
+    contentProvider,
+    output,
+  );
+  for (const repository of gitApi.repositories) {
+    comparisons.add(repository);
+  }
   context.subscriptions.push(
-    gitApi.onDidOpenRepository(addRepository),
-    gitApi.onDidCloseRepository(removeRepository),
-    vscode.workspace.onDidChangeWorkspaceFolders(syncWorkspaceRepositories),
+    comparisons,
+    gitApi.onDidOpenRepository((repository) => comparisons.add(repository)),
+    gitApi.onDidCloseRepository((repository) =>
+      comparisons.remove(repository),
+    ),
   );
 
   const chooseComparison = async (
-    sourceControl?: vscode.SourceControl,
+    scmContext?: ScmContext,
   ): Promise<RepositoryComparison | undefined> => {
-    const directMatch = [...comparisons.values()].find(
-      (comparison) => comparison.sourceControl === sourceControl,
-    );
+    const directMatch = comparisons.findForContext(scmContext);
     if (directMatch) {
       return directMatch;
     }
 
-    const available = [...comparisons.values()].sort((left, right) =>
-      left.displayName.localeCompare(right.displayName),
-    );
+    const available = comparisons.available;
     if (available.length === 0) {
       void vscode.window.showInformationMessage(
         "Diff Chooser did not find an open Git repository.",
@@ -153,12 +109,15 @@ export async function activate(
 
     const selected = await vscode.window.showQuickPick(
       available.map((comparison) => ({
-        label: comparison.displayName,
-        description: comparison.selectedBaseline?.label ?? "No baseline",
+        label: `$(git-branch) ${comparison.displayName}`,
+        description: comparison.selectedBaseline
+          ? `${comparison.repositoryPath} · vs ${comparison.selectedBaseline.label}`
+          : `${comparison.repositoryPath} · No baseline`,
         comparison,
       })),
       {
-        placeHolder: "Select a Git repository",
+        placeHolder: "Select a worktree",
+        matchOnDescription: true,
       },
     );
     return selected?.comparison;
@@ -167,8 +126,8 @@ export async function activate(
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "diffChooser.selectBaseline",
-      async (sourceControl?: vscode.SourceControl) => {
-        const comparison = await chooseComparison(sourceControl);
+      async (scmContext?: ScmContext) => {
+        const comparison = await chooseComparison(scmContext);
         if (!comparison) {
           return;
         }
@@ -238,8 +197,8 @@ export async function activate(
     ),
     vscode.commands.registerCommand(
       "diffChooser.clearBaseline",
-      async (sourceControl?: vscode.SourceControl) => {
-        const comparison = await chooseComparison(sourceControl);
+      async (scmContext?: ScmContext) => {
+        const comparison = await chooseComparison(scmContext);
         if (comparison) {
           await comparison.clearSelection();
         }
@@ -247,13 +206,17 @@ export async function activate(
     ),
     vscode.commands.registerCommand(
       "diffChooser.refresh",
-      async (sourceControl?: vscode.SourceControl) => {
-        const comparison = await chooseComparison(sourceControl);
-        if (!comparison) {
-          return;
-        }
+      async (scmContext?: ScmContext) => {
         try {
-          await comparison.refresh();
+          if (scmContext === comparisons.sourceControl) {
+            await comparisons.refreshAll();
+            return;
+          }
+
+          const comparison = await chooseComparison(scmContext);
+          if (comparison) {
+            await comparison.refresh();
+          }
         } catch (error) {
           void vscode.window.showErrorMessage(
             `Could not refresh Diff Chooser: ${error instanceof Error ? error.message : String(error)}`,

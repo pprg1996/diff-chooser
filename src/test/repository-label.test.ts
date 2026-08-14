@@ -1,31 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatRepositoryLabel } from "../repository-label";
+import {
+  formatWorktreeGroupLabel,
+  formatWorktreeName,
+} from "../repository-label";
 
-test("repository labels distinguish worktrees with the same folder name", () => {
+test("worktree names use branches to distinguish identical folder names", () => {
   assert.equal(
-    formatRepositoryLabel("/worktrees/first/creci", {
+    formatWorktreeName("/worktrees/first/creci", {
       name: "feature/verification",
     }),
-    "Diff Chooser (creci · feature/verification)",
+    "feature/verification",
   );
   assert.equal(
-    formatRepositoryLabel("/worktrees/second/creci", {
+    formatWorktreeName("/worktrees/second/creci", {
       name: "fix/docker-tsc",
     }),
-    "Diff Chooser (creci · fix/docker-tsc)",
+    "fix/docker-tsc",
   );
 });
 
-test("repository labels identify detached HEADs and tolerate missing Git state", () => {
+test("worktree names identify detached HEADs and tolerate missing Git state", () => {
   assert.equal(
-    formatRepositoryLabel("/worktrees/creci", {
+    formatWorktreeName("/worktrees/creci", {
       commit: "1234567890abcdef",
     }),
-    "Diff Chooser (creci · detached@1234567)",
+    "detached@1234567",
+  );
+  assert.equal(formatWorktreeName("/worktrees/creci"), "creci");
+});
+
+test("worktree group labels show their independent baselines", () => {
+  assert.equal(
+    formatWorktreeGroupLabel(
+      "/worktrees/creci",
+      { name: "feature/verification" },
+      { kind: "branch", ref: "refs/heads/main", label: "main" },
+    ),
+    "feature/verification → main",
   );
   assert.equal(
-    formatRepositoryLabel("/worktrees/creci"),
-    "Diff Chooser (creci)",
+    formatWorktreeGroupLabel("/worktrees/creci", { name: "main" }, undefined),
+    "main → Select baseline",
   );
 });
