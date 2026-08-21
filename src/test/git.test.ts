@@ -5,6 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import {
+  findDefaultBaseline,
   getChanges,
   readBaselineFile,
   resolveBaseline,
@@ -21,11 +22,11 @@ async function git(repositoryRoot: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function createRepository(): Promise<string> {
+async function createRepository(initialBranch = "main"): Promise<string> {
   const repositoryRoot = await mkdtemp(
     path.join(process.cwd(), ".test-repository-"),
   );
-  await git(repositoryRoot, "init", "-b", "main");
+  await git(repositoryRoot, "init", "-b", initialBranch);
   await git(repositoryRoot, "config", "user.name", "Diff Chooser Tests");
   await git(
     repositoryRoot,
@@ -54,6 +55,47 @@ async function commitAll(
   await git(repositoryRoot, "commit", "-m", message);
   return git(repositoryRoot, "rev-parse", "HEAD");
 }
+
+test("default baselines fall back to the local main branch", async (t) => {
+  const repositoryRoot = await createRepository();
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+
+  await write(repositoryRoot, "shared.txt", "base\n");
+  await commitAll(repositoryRoot, "base");
+  await git(repositoryRoot, "checkout", "-b", "feature");
+
+  assert.deepEqual(await findDefaultBaseline(repositoryRoot), {
+    kind: "branch",
+    ref: "refs/heads/main",
+    label: "main",
+  });
+});
+
+test("default baselines follow the remote HEAD for custom primary branches", async (t) => {
+  const repositoryRoot = await createRepository("trunk");
+  const remoteRoot = await mkdtemp(path.join(process.cwd(), ".test-remote-"));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  t.after(() => rm(remoteRoot, { recursive: true, force: true }));
+
+  await write(repositoryRoot, "shared.txt", "base\n");
+  await commitAll(repositoryRoot, "base");
+  await git(remoteRoot, "init", "--bare");
+  await git(repositoryRoot, "remote", "add", "origin", remoteRoot);
+  await git(repositoryRoot, "push", "-u", "origin", "trunk");
+  await git(
+    repositoryRoot,
+    "symbolic-ref",
+    "refs/remotes/origin/HEAD",
+    "refs/remotes/origin/trunk",
+  );
+  await git(repositoryRoot, "checkout", "-b", "feature");
+
+  assert.deepEqual(await findDefaultBaseline(repositoryRoot), {
+    kind: "branch",
+    ref: "refs/heads/trunk",
+    label: "trunk",
+  });
+});
 
 test("branch selections use the merge base and include committed and working changes", async (t) => {
   const repositoryRoot = await createRepository();

@@ -4,6 +4,7 @@ import type { GitRepository } from "./git-api";
 import {
   type BaselineSelection,
   type GitChange,
+  findDefaultBaseline,
   getChanges,
   readBaselineFile,
   resolveBaseline,
@@ -87,7 +88,9 @@ export class RepositoryComparison implements vscode.Disposable {
 
   private readonly disposables: vscode.Disposable[] = [];
   private readonly persistenceKey: string;
+  private readonly gutterPersistenceKey: string;
   private selection: BaselineSelection | undefined;
+  private gutterEnabled: boolean;
   private baselineCommit: string | undefined;
   private renamedPaths = new Map<string, string>();
   private refreshTimer: NodeJS.Timeout | undefined;
@@ -102,8 +105,11 @@ export class RepositoryComparison implements vscode.Disposable {
     private readonly invalidateQuickDiff: () => void,
   ) {
     this.persistenceKey = `diffChooser.baseline.${repository.rootUri.toString()}`;
+    this.gutterPersistenceKey = `diffChooser.gutter.${repository.rootUri.toString()}`;
     this.selection =
       context.workspaceState.get<BaselineSelection>(this.persistenceKey);
+    this.gutterEnabled =
+      context.workspaceState.get<boolean>(this.gutterPersistenceKey) ?? true;
 
     this.resourceGroup = sourceControl.createResourceGroup(
       `worktree:${Buffer.from(repository.rootUri.toString()).toString("base64url")}`,
@@ -155,19 +161,37 @@ export class RepositoryComparison implements vscode.Disposable {
     return this.selection;
   }
 
+  get isGutterEnabled(): boolean {
+    return this.gutterEnabled;
+  }
+
   get repositoryPath(): string {
     return this.repository.rootUri.fsPath;
   }
 
   private get groupLabel(): string {
-    return formatWorktreeGroupLabel(
+    const label = formatWorktreeGroupLabel(
       this.repository.rootUri.fsPath,
       this.repository.state.HEAD,
       this.selection,
     );
+    return this.gutterEnabled ? label : `${label} · gutter off`;
   }
 
   async initialize(): Promise<void> {
+    if (!this.selection) {
+      const defaultSelection = await findDefaultBaseline(
+        this.repository.rootUri.fsPath,
+      );
+      if (defaultSelection) {
+        this.selection = defaultSelection;
+        this.resourceGroup.label = this.groupLabel;
+        await this.context.workspaceState.update(
+          this.persistenceKey,
+          defaultSelection,
+        );
+      }
+    }
     await this.refresh();
   }
 
@@ -183,6 +207,17 @@ export class RepositoryComparison implements vscode.Disposable {
     this.resourceGroup.label = this.groupLabel;
     await this.context.workspaceState.update(this.persistenceKey, undefined);
     await this.refresh();
+  }
+
+  async toggleGutter(): Promise<boolean> {
+    this.gutterEnabled = !this.gutterEnabled;
+    this.resourceGroup.label = this.groupLabel;
+    await this.context.workspaceState.update(
+      this.gutterPersistenceKey,
+      this.gutterEnabled,
+    );
+    this.invalidateQuickDiff();
+    return this.gutterEnabled;
   }
 
   scheduleRefresh(): void {
@@ -311,7 +346,7 @@ export class RepositoryComparison implements vscode.Disposable {
   }
 
   provideOriginalResource(uri: vscode.Uri): vscode.Uri | undefined {
-    if (!this.baselineCommit || !this.contains(uri)) {
+    if (!this.gutterEnabled || !this.baselineCommit || !this.contains(uri)) {
       return undefined;
     }
 

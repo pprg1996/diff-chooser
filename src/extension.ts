@@ -108,13 +108,17 @@ export async function activate(
     }
 
     const selected = await vscode.window.showQuickPick(
-      available.map((comparison) => ({
-        label: `$(git-branch) ${comparison.displayName}`,
-        description: comparison.selectedBaseline
-          ? `${comparison.repositoryPath} · vs ${comparison.selectedBaseline.label}`
-          : `${comparison.repositoryPath} · No baseline`,
-        comparison,
-      })),
+      available.map((comparison) => {
+        const baseline = comparison.selectedBaseline
+          ? `vs ${comparison.selectedBaseline.label}`
+          : "No baseline";
+        const gutter = comparison.isGutterEnabled ? "" : " · Gutter off";
+        return {
+          label: `$(git-branch) ${comparison.displayName}`,
+          description: `${comparison.repositoryPath} · ${baseline}${gutter}`,
+          comparison,
+        };
+      }),
       {
         placeHolder: "Select a worktree",
         matchOnDescription: true,
@@ -202,6 +206,20 @@ export async function activate(
         if (comparison) {
           await comparison.clearSelection();
         }
+      },
+    ),
+    vscode.commands.registerCommand(
+      "diffChooser.toggleGutter",
+      async (scmContext?: ScmContext) => {
+        const comparison = await chooseComparison(scmContext);
+        if (!comparison) {
+          return;
+        }
+
+        const enabled = await comparison.toggleGutter();
+        void vscode.window.showInformationMessage(
+          `Diff Chooser gutter ${enabled ? "enabled" : "disabled"} for ${comparison.displayName}.`,
+        );
       },
     ),
     vscode.commands.registerCommand(

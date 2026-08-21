@@ -2,7 +2,7 @@
   "name": "diff-chooser",
   "displayName": "Diff Chooser",
   "description": "Choose the Git branch or commit used by Source Control and editor gutter diffs.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "pprg1996",
   "license": "MIT",
   "icon": "icon.png",
@@ -40,6 +40,11 @@
         "icon": "$(close)"
       },
       {
+        "command": "diffChooser.toggleGutter",
+        "title": "Diff Chooser: Toggle Gutter",
+        "icon": "$(diff)"
+      },
+      {
         "command": "diffChooser.refresh",
         "title": "Diff Chooser: Refresh",
         "icon": "$(refresh)"
@@ -58,7 +63,7 @@
           "group": "navigation@2"
         },
         {
-          "command": "diffChooser.clearBaseline",
+          "command": "diffChooser.toggleGutter",
           "when": "scmProvider == diffChooser",
           "group": "navigation@3"
         }
@@ -75,7 +80,7 @@
           "group": "inline@2"
         },
         {
-          "command": "diffChooser.clearBaseline",
+          "command": "diffChooser.toggleGutter",
           "when": "scmProvider == diffChooser",
           "group": "inline@3"
         }

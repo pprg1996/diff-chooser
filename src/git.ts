@@ -96,6 +96,104 @@ export async function listBranches(
     );
 }
 
+async function tryRunGit(
+  repositoryRoot: string,
+  args: readonly string[],
+): Promise<string | undefined> {
+  try {
+    return await runGit(repositoryRoot, args);
+  } catch (error) {
+    if (error instanceof GitError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+export async function findDefaultBaseline(
+  repositoryRoot: string,
+): Promise<BaselineSelection | undefined> {
+  const branches = await listBranches(repositoryRoot);
+  const branchByFullName = new Map(
+    branches.map((branch) => [branch.fullName, branch]),
+  );
+  const remoteRefs =
+    (await tryRunGit(repositoryRoot, [
+      "for-each-ref",
+      "--format=%(refname)\t%(symref)",
+      "refs/remotes",
+    ])) ?? "";
+  const remoteHeadTargets = remoteRefs
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.split("\t"))
+    .filter(
+      (fields): fields is [string, string] =>
+        Boolean(fields[0]?.endsWith("/HEAD") && fields[1]),
+    )
+    .sort(
+      ([left], [right]) =>
+        Number(!left.startsWith("refs/remotes/origin/")) -
+          Number(!right.startsWith("refs/remotes/origin/")) ||
+        left.localeCompare(right),
+    )
+    .map(([, target]) => target);
+
+  for (const target of remoteHeadTargets) {
+    const remoteMatch = /^refs\/remotes\/[^/]+\/(.+)$/.exec(target);
+    const localBranch = remoteMatch
+      ? branchByFullName.get(`refs/heads/${remoteMatch[1]}`)
+      : undefined;
+    const branch = localBranch ?? branchByFullName.get(target);
+    if (branch) {
+      return { kind: "branch", ref: branch.fullName, label: branch.displayName };
+    }
+  }
+
+  const configuredDefault = (
+    await tryRunGit(repositoryRoot, ["config", "--get", "init.defaultBranch"])
+  )?.trim();
+  const conventionalNames = [
+    ...(configuredDefault ? [configuredDefault] : []),
+    "main",
+    "master",
+    "trunk",
+  ];
+  for (const name of conventionalNames) {
+    const localBranch = branchByFullName.get(`refs/heads/${name}`);
+    if (localBranch) {
+      return {
+        kind: "branch",
+        ref: localBranch.fullName,
+        label: localBranch.displayName,
+      };
+    }
+
+    const remoteBranch = branches.find(
+      (branch) =>
+        branch.kind === "remote" && branch.fullName.endsWith(`/${name}`),
+    );
+    if (remoteBranch) {
+      return {
+        kind: "branch",
+        ref: remoteBranch.fullName,
+        label: remoteBranch.displayName,
+      };
+    }
+  }
+
+  const localBranches = branches.filter((branch) => branch.kind === "local");
+  if (localBranches.length === 1 && localBranches[0]) {
+    return {
+      kind: "branch",
+      ref: localBranches[0].fullName,
+      label: localBranches[0].displayName,
+    };
+  }
+
+  return undefined;
+}
+
 export async function resolveCommit(
   repositoryRoot: string,
   ref: string,

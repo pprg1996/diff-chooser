@@ -17,6 +17,8 @@ remain visible alongside Diff Chooser.
   commit.
 - Committed, staged, unstaged, and untracked changes are included.
 - The selection is stored per repository in workspace state.
+- Repositories without a saved selection automatically compare against the
+  remote's default branch, falling back to `main`, `master`, or `trunk`.
 - A single Diff Chooser provider groups every Git repository and worktree
   detected by VS Code. Each worktree has a collapsible group labeled with its
   branch and baseline, such as `feature/login → main`.
@@ -38,6 +40,10 @@ Chooser title bar, and each worktree group's inline actions:
   files. The shared title action refreshes every worktree at once.
 - **Diff Chooser: Clear Baseline** removes the saved selection for that
   repository.
+- **Diff Chooser: Toggle Gutter** enables or disables editor gutter markers for
+  one worktree without hiding its Source Control comparison. This replaces the
+  Clear Baseline button in the shared title bar and worktree groups; disabled
+  groups are labeled `gutter off`.
 
 Click a changed file in the Diff Chooser provider to open its full comparison.
 Editor gutter markers use the same baseline while you edit. Rename comparisons
